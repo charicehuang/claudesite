@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Fluency Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="quiz-page">
+  <div class="quiz-shell">
+    <div class="progress-track"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+    <div class="q-card" id="app"></div>
+  </div>
+</div>
+
+<script>
+// dim: which of the 5 dimensions this option demonstrates skilled instinct for.
+// null = a common but less-calibrated choice (no credit).
+const DIMENSIONS = ["Context-setting", "Specificity", "Iteration", "Audience calibration", "Goal clarity"];
+
+const QUESTIONS = [
+  {
+    text: "You're delegating a task to a teammate over text, and you only have one message before they start working. What do you send?",
+    options: [
+      { text: "Make it good and thorough — cover as many angles as you reasonably can.", dim: null },
+      { text: "Do exactly X, in Y format, due by Z.", dim: "Specificity" },
+      { text: "The full project history and every doc we've discussed, so nothing gets missed.", dim: null },
+      { text: "The one-sentence goal, plus the one constraint that actually matters. Go.", dim: "Goal clarity" }
+    ]
+  },
+  {
+    text: "You're briefing a tutor on what you need before a first session that's only 20 minutes long. What do you say?",
+    options: [
+      { text: "Start wherever seems most broken, and I'll tell you if you're off.", dim: "Iteration" },
+      { text: "I'm stuck specifically on integration by parts — problems 4 and 7.", dim: "Specificity" },
+      { text: "Just send me a full written explanation of everything before we talk.", dim: null },
+      { text: "I want to cover the entire unit in detail so nothing is left out.", dim: null }
+    ]
+  },
+  {
+    text: "A friend asks you to look at their job application essay, then asks, \"is this good?\" What's your response?",
+    options: [
+      { text: "It's well-written, so it should work anywhere you send it.", dim: null },
+      { text: "This paragraph flattens once it hits the second example — fix that and send it back.", dim: "Iteration" },
+      { text: "Depends — is this going to a creative-industry recruiter or a finance one? That changes what \"good\" means here.", dim: "Audience calibration" },
+      { text: "It's fine, but here's a full rewrite of the whole thing from scratch.", dim: null }
+    ]
+  },
+  {
+    text: "You have to give the same career update at a family dinner and at a work standup. What do you do?",
+    options: [
+      { text: "Give the identical, fully detailed version both times so nothing gets lost.", dim: null },
+      { text: "Tell two different versions — one about what changed for us, one about what shipped.", dim: "Audience calibration" },
+      { text: "Include everything that happened this month so I don't leave anything out.", dim: null },
+      { text: "Decide first what the one thing is I want each audience to walk away knowing.", dim: "Goal clarity" }
+    ]
+  },
+  {
+    text: "A roommate offers to grab something from the store on their way home. You get one text to send.",
+    options: [
+      { text: "Some milk would be great, whatever kind, really anything works.", dim: null },
+      { text: "I'm out of milk for tomorrow's breakfast — can you grab some before 9?", dim: "Context-setting" },
+      { text: "Also grab snacks, and toiletries, and check if we need trash bags — anything you notice, really.", dim: null },
+      { text: "Oat milk — the carton with the blue label from Trader Joe's, not the one from Target.", dim: "Specificity" }
+    ]
+  }
+];
+
+const ARCHETYPES = {
+  "Context-setting": {
+    title: "The Briefer",
+    desc: "You give the why before the what — background isn't padding to you, it's what keeps the output from missing the point.",
+    mapsTo: "Lead with the one piece of context that changes the answer — the deadline, the constraint, the reason it matters.",
+    backfire: "Load in too much backstory and Claude spends its effort summarizing your context back to you instead of solving the actual ask."
+  },
+  "Specificity": {
+    title: "The Precisionist",
+    desc: "You'd rather name the exact constraint than describe the vibe — format, deadline, scope, spelled out, no guessing required.",
+    mapsTo: "Say exactly what you want back — format, length, the one thing to avoid — instead of describing the shape of a good answer.",
+    backfire: "Over-specify and you can box out a better answer than the one you asked for — sometimes the model needs room to push back on your framing."
+  },
+  "Iteration": {
+    title: "The Iterator",
+    desc: "You treat a first attempt as information, not failure — you correct with specifics instead of starting over. That's the loop good prompting actually runs on.",
+    mapsTo: "Treat the first answer as a draft, not a verdict. Say exactly what's off — not just \"try again.\"",
+    backfire: "When you skip framing, Claude fills the gap with a generic default — technically responsive, but not what you actually needed."
+  },
+  "Audience calibration": {
+    title: "The Translator",
+    desc: "You never send the same message twice — you already know that \"good\" depends entirely on who's receiving it.",
+    mapsTo: "Prompting Claude well is audience calibration — you decide who the output is speaking to and how much it already knows.",
+    backfire: "Calibrating too hard to an imagined audience can make you hedge the actual point — sometimes the clearest move is just saying the thing."
+  },
+  "Goal clarity": {
+    title: "The Closer",
+    desc: "You lead with the one thing that actually matters and cut everything else — a habit that makes both people and models finish faster.",
+    mapsTo: "Decide the one thing you want the output to accomplish before you write the ask — everything else is negotiable.",
+    backfire: "Compress too early and you can cut the one constraint that mattered — the detail that would have changed the whole approach."
+  }
+};
+
+const POINTS_PER_HIT = 2;
+const SCALE_MAX = 8;
+
+let step = -1;
+let scores = { "Context-setting": 0, "Specificity": 0, "Iteration": 0, "Audience calibration": 0, "Goal clarity": 0 };
+
+const app = document.getElementById("app");
+const progress = document.getElementById("progress");
+
+function renderIntro() {
+  progress.style.width = "0%";
+  app.innerHTML = `
+    <div class="eyebrow">PROMPT FLUENCY CHECK</div>
+    <div class="q-text" style="font-family:var(--serif);font-weight:400;font-size:30px;">You already know how to do this.</div>
+    <p style="color:var(--muted);font-size:16px;margin-bottom:8px;">Five scenarios. None of them mention AI. Every option will sound reasonable — answer with instinct, not by scanning for the most thorough-sounding one.</p>
+    <p style="font-size:16px;margin-bottom:22px;">Prompting Claude well isn't a technical skill. It's a communication instinct you already use on people — this just shows you where it holds up and where it doesn't.</p>
+    <button class="start-btn" id="startBtn">Start &rarr;</button>
+  `;
+  document.getElementById("startBtn").onclick = () => { step = 0; renderQuestion(); };
+}
+
+function renderQuestion() {
+  const q = QUESTIONS[step];
+  progress.style.width = `${(step / QUESTIONS.length) * 100}%`;
+  app.innerHTML = `
+    <div class="q-meta">Question ${step + 1} of ${QUESTIONS.length}</div>
+    <div class="q-text">${q.text}</div>
+    <div class="options">
+      ${q.options.map((o, i) => `<button class="opt" data-i="${i}">${o.text}</button>`).join("")}
+    </div>
+  `;
+  app.querySelectorAll(".opt").forEach(btn => {
+    btn.onclick = () => {
+      const opt = q.options[parseInt(btn.dataset.i)];
+      if (opt.dim) scores[opt.dim] += POINTS_PER_HIT;
+      step++;
+      if (step < QUESTIONS.length) renderQuestion(); else renderResults();
+    };
+  });
+}
+
+function renderResults() {
+  progress.style.width = "100%";
+  const topDim = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+  const arc = ARCHETYPES[topDim];
+
+  app.innerHTML = `
+    <div class="results">
+      <div class="eyebrow">YOUR RESULT</div>
+      <h2 style="font-family:var(--serif);">${arc.title}</h2>
+      <p class="result-lede">${arc.desc}</p>
+      ${DIMENSIONS.map(d => `
+        <div class="bar-row">
+          <div class="bar-label">${d}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.min(scores[d], SCALE_MAX) / SCALE_MAX * 100}%"></div></div>
+          <div class="bar-score">${scores[d]}/${SCALE_MAX}</div>
+        </div>
+      `).join("")}
+      <div class="category-block">
+        <div class="cat-title">Where this maps to Claude</div>
+        <div class="myth-note">${arc.mapsTo}</div>
+        <div class="myth-note">Prompting Claude well is audience calibration — you decide who the output is speaking to and how much it already knows.</div>
+      </div>
+      <div class="category-block">
+        <div class="cat-title">Where this instinct backfires</div>
+        <div class="myth-note" style="background:var(--accent-soft);border-left-color:var(--accent-dark);padding:12px 14px;border-left-width:3px;">${arc.backfire}</div>
+      </div>
+      <div class="quote">&ldquo;Purpose beats pleasure.&rdquo; &mdash; Aristotle</div>
+      <p style="font-size:15px;color:var(--muted);">This tool isn't testing whether you can get a fast answer out of Claude. It's testing whether you communicate with intent — which is the actual skill, on people or on models.</p>
+      <button class="retake" id="retakeBtn">Retake &rarr;</button>
+      <div class="quiz-footer">
+        Built with Claude by Charice Huang &mdash; Claude Campus Ambassador applicant, NYU, Fall 2026.<br>
+        This is a working prototype of a semester-long feedback-loop event format: score how people actually communicate under trade-offs, then teach fluency from that baseline instead of a generic tutorial.
+      </div>
+    </div>
+  `;
+  document.getElementById("retakeBtn").onclick = () => {
+    step = -1;
+    scores = { "Context-setting": 0, "Specificity": 0, "Iteration": 0, "Audience calibration": 0, "Goal clarity": 0 };
+    renderIntro();
+  };
+}
+
+renderIntro();
+</script>
+</body>
+</html>

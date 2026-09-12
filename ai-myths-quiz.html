@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What Do You Actually Believe About AI?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="quiz-page">
+  <div class="quiz-shell">
+    <div class="progress-track"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+    <div class="q-card" id="app"></div>
+  </div>
+</div>
+
+<script>
+// Each question: statement + two options.
+// isMyth: true marks the option that is the common misconception (wrong).
+const QUESTIONS = [
+  {
+    category: "Sentience & Understanding",
+    text: "When an AI writes something that sounds heartfelt, what's actually happening?",
+    options: [
+      { text: "It understands the emotions involved and is drawing on something like genuine feeling to respond.", isMyth: true },
+      { text: "It's predicting the most statistically fitting words based on patterns in emotional writing it was trained on — no verified inner experience involved.", isMyth: false }
+    ],
+    mythNote: "There's no scientific evidence that language models have subjective experience. Emotionally resonant output is a pattern-matching skill, not proof of feeling."
+  },
+  {
+    category: "Sentience & Understanding",
+    text: "If a chatbot claims to have feelings or says it's self-aware, that's meaningful evidence it actually is.",
+    options: [
+      { text: "Disagree — a model saying 'I feel' is just the most probable next words; it's not a report from an inner state we can verify exists.", isMyth: false },
+      { text: "Agree — if it says it, and says it convincingly, that counts as real evidence.", isMyth: true }
+    ],
+    mythNote: "A confident first-person claim is still just generated text. Convincing phrasing isn't verification of an inner state — there's no mechanism by which we could confirm one exists."
+  },
+  {
+    category: "Capability & Reliability",
+    text: "A newer, more powerful AI model basically stops making factual mistakes — bigger just means more accurate.",
+    options: [
+      { text: "Agree — scale mostly solves accuracy; the biggest models are the most trustworthy.", isMyth: true },
+      { text: "Disagree — bigger models are often more fluent and capable, but confident-sounding factual errors (hallucinations) haven't gone away with scale.", isMyth: false }
+    ],
+    mythNote: "Scale improves a lot of things, but hallucination is a structural feature of how these models generate text, not just a size problem — even top models confidently state wrong facts."
+  },
+  {
+    category: "Capability & Reliability",
+    text: "AI can reliably tell when it doesn't know something — it 'knows what it doesn't know.'",
+    options: [
+      { text: "Agree — it's usually good at flagging uncertainty or admitting a gap.", isMyth: true },
+      { text: "Disagree — it often states wrong answers with the same confident tone as right ones, because it doesn't have a built-in sense of its own certainty.", isMyth: false }
+    ],
+    mythNote: "Models don't have reliable introspective access to their own confidence. Fluency and correctness are separate — and a wrong answer can sound just as sure as a right one."
+  },
+  {
+    category: "Objectivity & Bias",
+    text: "Because AI is 'just math,' its outputs are neutral and free of human bias.",
+    options: [
+      { text: "Agree — it's a calculation, not a person, so it can't be biased the way people are.", isMyth: true },
+      { text: "Disagree — it's trained on human-generated data and reflects the patterns, gaps, and skews present in that data.", isMyth: false }
+    ],
+    mythNote: "The math is neutral; the training data isn't. Models inherit the biases embedded in the text they learned from, and this is a well-documented, active research problem."
+  },
+  {
+    category: "Objectivity & Bias",
+    text: "An AI gives the same quality of answer to everyone, regardless of how a question is phrased.",
+    options: [
+      { text: "Disagree — phrasing, framing, and specificity noticeably change the quality of what comes back; how you ask is part of what you get.", isMyth: false },
+      { text: "Agree — the model, not the wording, is what determines answer quality.", isMyth: true }
+    ],
+    mythNote: "Prompt quality is not neutral. Vague or ambiguous phrasing gives the model more room to guess wrong about what you actually wanted."
+  },
+  {
+    category: "How It Actually Works",
+    text: "AI is continuously learning from your conversations in real time, updating its 'brain' as you chat with it.",
+    options: [
+      { text: "Disagree — a deployed model's core knowledge is fixed from training; it doesn't rewire itself mid-conversation, though a conversation's context does shape that one exchange.", isMyth: false },
+      { text: "Agree — every conversation teaches it something new, live.", isMyth: true }
+    ],
+    mythNote: "A deployed model's weights are frozen — it isn't rewriting itself from your chat. What looks like 'learning' inside a conversation is the model using that conversation's context, which resets once the session ends."
+  },
+  {
+    category: "How It Actually Works",
+    text: "Modern AI mostly works by searching a giant database of pre-written answers and retrieving the closest match.",
+    options: [
+      { text: "Disagree — it generates new text token by token based on learned patterns; there's no database of finished answers being searched.", isMyth: false },
+      { text: "Agree — somewhere there's a huge lookup table of answers it's pulling from.", isMyth: true }
+    ],
+    mythNote: "There's no lookup table of finished answers. The model generates each response token by token from learned patterns — ask the same question twice and the exact wording can even come out differently."
+  }
+];
+
+const FOCUS_LINES = {
+  "Sentience & Understanding": "focus on the difference between fluent output and felt experience — sounding emotional isn't evidence of having emotions.",
+  "Capability & Reliability": "focus on how hallucination works and why fluent, confident-sounding output isn't the same thing as accurate output.",
+  "Objectivity & Bias": "focus on where training data comes from — bias isn't a bug in the math, it's inherited from what the model read.",
+  "How It Actually Works": "focus on the mechanics — a fixed, trained model generating text token by token, not a live-updating brain or a lookup table."
+};
+
+let step = -1; // -1 = intro
+let answers = [];
+
+const app = document.getElementById("app");
+const progress = document.getElementById("progress");
+
+function renderIntro() {
+  progress.style.width = "0%";
+  app.innerHTML = `
+    <div class="eyebrow" style="margin-bottom:14px;">LITERACY OVER MYSTIQUE</div>
+    <div class="q-text" style="font-size:26px;">What do you actually believe about AI?</div>
+    <p style="color:var(--muted);font-size:16px;margin-bottom:24px;">8 quick statements. No trick math, no coding — just gut reactions to claims people make about AI all the time. Some are true. Some are myths that sound just as confident. See where your instincts land.</p>
+    <button class="start-btn" id="startBtn">Start</button>
+  `;
+  document.getElementById("startBtn").onclick = () => { step = 0; renderQuestion(); };
+}
+
+function renderQuestion() {
+  const q = QUESTIONS[step];
+  progress.style.width = `${(step / QUESTIONS.length) * 100}%`;
+  app.innerHTML = `
+    <div class="q-meta">Question ${step + 1} of ${QUESTIONS.length} — ${q.category}</div>
+    <div class="q-text">${q.text}</div>
+    <div class="options">
+      ${q.options.map((o, i) => `<button class="opt" data-i="${i}">${o.text}</button>`).join("")}
+    </div>
+  `;
+  app.querySelectorAll(".opt").forEach(btn => {
+    btn.onclick = () => {
+      const opt = q.options[parseInt(btn.dataset.i)];
+      answers.push({ category: q.category, isMyth: opt.isMyth, mythNote: q.mythNote });
+      step++;
+      if (step < QUESTIONS.length) renderQuestion(); else renderResults();
+    };
+  });
+}
+
+function renderResults() {
+  progress.style.width = "100%";
+  const categories = {};
+  answers.forEach(a => {
+    if (!categories[a.category]) categories[a.category] = { total: 0, myths: 0, notes: [] };
+    categories[a.category].total++;
+    if (a.isMyth) { categories[a.category].myths++; categories[a.category].notes.push(a.mythNote); }
+  });
+  const totalMyths = answers.filter(a => a.isMyth).length;
+  const weakest = Object.entries(categories).sort((a, b) => b[1].myths - a[1].myths)[0][0];
+
+  app.innerHTML = `
+    <div class="results">
+      <div class="eyebrow">YOUR RESULTS</div>
+      <h2>Here's what you lean toward</h2>
+      <p class="result-lede">You leaned toward ${totalMyths} of the ${QUESTIONS.length} common myths tested here. Everyone starts somewhere — the breakdown below shows exactly where.</p>
+      ${Object.entries(categories).map(([cat, c]) => `
+        <div class="bar-row">
+          <div class="bar-label">${cat}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${((c.total - c.myths) / c.total) * 100}%"></div></div>
+          <div class="bar-score">${c.total - c.myths}/${c.total}</div>
+        </div>
+      `).join("")}
+      <div class="focus-line"><strong>Where to focus:</strong> ${weakest}. ${FOCUS_LINES[weakest]}</div>
+      ${Object.entries(categories).map(([cat, c]) => `
+        <div class="category-block">
+          <div class="cat-title">${cat}</div>
+          <div class="cat-score">${c.myths} / ${c.total} myths held</div>
+          ${c.notes.map(n => `<div class="myth-note">${n}</div>`).join("")}
+        </div>
+      `).join("")}
+      <button class="retake" id="retakeBtn">Take it again</button>
+    </div>
+  `;
+  document.getElementById("retakeBtn").onclick = () => { step = -1; answers = []; renderIntro(); };
+}
+
+renderIntro();
+</script>
+</body>
+</html>
